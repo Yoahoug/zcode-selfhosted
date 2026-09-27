@@ -1,0 +1,63 @@
+name: selfhost-release
+
+on:
+  push:
+    tags:
+      - "selfhost-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version override (e.g. 3.14.3-selfhost.1)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+      - name: Bootstrap
+        run: pnpm bootstrap
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Lint
+        run: pnpm lint
+      - name: Architecture check
+        run: pnpm architecture:check
+      - name: Build zcode distribution
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ "${GITHUB_REF}" == refs/tags/selfhost-v* ]]; then
+            VERSION="${VERSION:-${GITHUB_REF#refs/tags/selfhost-v}}"
+          fi
+          ARGS=(--base-url "https://github.com/${{ github.repository }}/releases/download/selfhost-latest/")
+          if [[ -n "$VERSION" ]]; then
+            ARGS+=(--version "$VERSION")
+          fi
+          pnpm build:zcode "${ARGS[@]}"
+      - name: Collect artifacts
+        run: |
+          ls -R dist/zcode/releases
+          cp dist/zcode/install.sh ./install.sh
+          cp dist/zcode/latest.json ./latest.json
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'selfhost-latest' }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || 'selfhost-latest' }}
+          prerelease: true
+          files: |
+            dist/zcode/releases/*/*.tar.gz
+            dist/zcode/releases/*/sha256.txt
+            install.sh
+            latest.json
