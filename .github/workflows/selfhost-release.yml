@@ -40,7 +40,14 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/selfhost-v* ]]; then
             VERSION="${VERSION:-${GITHUB_REF#refs/tags/selfhost-v}}"
           fi
-          ARGS=(--base-url "https://github.com/${{ github.repository }}/releases/download/selfhost-latest/")
+          # base-url 必须指向本次发布的 tag 名，而不是浮动的 selfhost-latest，
+          # 否则同版本重发或 latest 指向漂移后，latest.json 与 tar.gz 会错位 404。
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            DIST_TAG="${{ github.ref_name }}"
+          else
+            DIST_TAG="selfhost-latest"
+          fi
+          ARGS=(--base-url "https://github.com/${{ github.repository }}/releases/download/${DIST_TAG}/")
           if [[ -n "$VERSION" ]]; then
             ARGS+=(--version "$VERSION")
           fi
