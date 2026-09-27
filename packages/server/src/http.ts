@@ -40,6 +40,10 @@ import {
 } from "@zcode/shared";
 import { connectRemote, createRemoteBackend, type RemoteConnection } from "./remote/index.js";
 import { createHostCapabilityStore } from "./hostCapability.js";
+import {
+  resolveSelfhostIdleTimeoutMinutes,
+  SelfhostIdleResourceManager,
+} from "./selfhostIdleResource.js";
 
 function wrapWebSocket(ws: WebSocket): ISocket {
   const onData = new Emitter<VSBuffer>();
@@ -320,13 +324,29 @@ export function createHttpServer(
   app.get("/api/server-info", (c) => c.json(createServerInfo(options)));
   app.post("/api/rpc-host-capability", (c) => c.json(hostCapabilities.issue()));
 
+  // 自托管空闲资源管理：计数真相的唯一所有者。WS 开关与 Agent turn 事件在此聚合，
+  // 资源端点只读它的快照。注册在 token 中间件之后，自动受鉴权保护。
+  const selfhostIdle = new SelfhostIdleResourceManager(
+    services.getOptional(IZCodeAgentService),
+    { idleTimeoutMinutes: resolveSelfhostIdleTimeoutMinutes(process.env) },
+  );
+  selfhostIdle.start();
+
+  app.get("/api/selfhost/resource", (c) => c.json(selfhostIdle.readSnapshot()));
+
   // 普通 `/ws` 永远是 terminal-client；浏览器/任意客户端设置旧 mode header
   // 都不能再把自己提升为 trusted host。
   app.get(
     "/ws",
     upgradeWebSocket(() => ({
       onOpen(_event, ws) {
+        // 普通 /ws 是 terminal-client；可信 /ws/host 通道不计入空闲判定，
+        // 桌面 Dev 联调不应阻止服务器空闲释放。
+        selfhostIdle.notifyWsOpened();
         setupChannelServer(ws.raw as WebSocket, services, "web-remote-replayable");
+      },
+      onClose() {
+        selfhostIdle.notifyWsClosed();
       },
     })),
   );
