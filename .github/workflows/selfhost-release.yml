@@ -57,6 +57,13 @@ jobs:
           ls -R dist/zcode/releases
           cp dist/zcode/install.sh ./install.sh
           cp dist/zcode/latest.json ./latest.json
+          # GitHub Release 的资产是扁平的，没有 releases/<version>/ 目录层级；
+          # 上游 install.sh 按 `${BASE_URL}/releases/$VERSION/$TARBALL` 拼 URL，
+          # 在我们的扁平布局下会 404。这里只改下载路径拼接，sha256.txt 与 install.sh
+          # 一起发布，服务器安装后可用 sha256.txt 做离线校验。
+          sed -i 's|\${BASE_URL%/}/releases/$VERSION/$TARBALL|${BASE_URL%/}/$TARBALL|' ./install.sh
+          echo "flattened install.sh download line:"
+          grep -n "curl -fL" ./install.sh
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
