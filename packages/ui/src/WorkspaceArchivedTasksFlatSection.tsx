@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button.js";
 import { cn } from "@/components/lib/utils.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
-import { useArchivedTasksFallback } from "@/hooks/useArchivedTasksFallback.js";
 import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
+import { useLocalWorkspaceScopes } from "@/hooks/useLocalWorkspaceScopes.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { formatTaskRelativeTime } from "@/lib/taskListItemPresentation.js";
@@ -83,35 +83,18 @@ export function WorkspaceArchivedTasksFlatSection({
     [baseServices, serviceResolverState, workspaceTabs],
   );
   const activeWorkspaceKey = buildTaskWorkspaceKey(activeWorkspacePath, activeWorkspaceIdentity);
-  const controllerQuery = useGlobalTaskList({
+  // 与 pinned / timeline 对齐：Controller 查询只带本地 workspace，远端走独立 store。
+  // --web 自托管的 window-controller 通道由 server 侧轻量实现提供（见
+  // selfhost/task-list-controller.md），此处不再需要客户端降级分支。
+  const scopedWorkspaceTabs = useLocalWorkspaceScopes({ workspaceTabs });
+  const { items, total, loading, syncingRemoteWorkspaces, refresh } = useGlobalTaskList({
     kind: "archived",
-    workspaceTabs,
+    workspaceTabs: scopedWorkspaceTabs,
     sortBy,
     searchQuery: "",
     expanded: showAllTasks,
     collapsedLimit,
   });
-  // Controller 只在桌面 Host 注册；--web 自托管没有该通道时 useGlobalTaskList
-  // 永远返回空。此时降级直查各 workspace 的 listArchivedTasks，保证归档列表可用。
-  // 桌面端 Controller 存在，降级 hook 内部直接返回空，不改变原有行为。
-  const hasController = Boolean(baseServices.windowControllerService);
-  const fallbackQuery = useArchivedTasksFallback({
-    enabled: !hasController,
-    workspaceTabs,
-    sortBy,
-  });
-  const { items, total, loading, syncingRemoteWorkspaces, refresh } = hasController
-    ? controllerQuery
-    : {
-        items: fallbackQuery.items,
-        total: fallbackQuery.total,
-        loading: fallbackQuery.loading || controllerQuery.loading,
-        syncingRemoteWorkspaces: controllerQuery.syncingRemoteWorkspaces,
-        refresh: async () => {
-          fallbackQuery.refresh();
-          await controllerQuery.refresh();
-        },
-      };
   const canToggleExpanded = total > collapsedLimit;
 
   return (
