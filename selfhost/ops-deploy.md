@@ -7,7 +7,7 @@
 以 root 在服务器上执行（幂等：同版本重装、新版本升级；token 与数据目录保留）：
 
 ```sh
-ZCODE_DIST_BASE_URL="https://github.com/Yoahoug/zcode-selfhosted/releases/download/selfhost-v3.14.3-selfhost.1/" \
+ZCODE_DIST_BASE_URL="https://github.com/Yoahoug/zcode-selfhosted/releases/download/selfhost-v<VERSION>/" \
   bash /data/appdata/zcode-web/install.sh
 ```
 
