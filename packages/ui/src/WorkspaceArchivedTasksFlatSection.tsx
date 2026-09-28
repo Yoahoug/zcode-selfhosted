@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button.js";
 import { cn } from "@/components/lib/utils.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
+import { useArchivedTasksFallback } from "@/hooks/useArchivedTasksFallback.js";
 import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -82,7 +83,7 @@ export function WorkspaceArchivedTasksFlatSection({
     [baseServices, serviceResolverState, workspaceTabs],
   );
   const activeWorkspaceKey = buildTaskWorkspaceKey(activeWorkspacePath, activeWorkspaceIdentity);
-  const { items, total, loading, syncingRemoteWorkspaces, refresh } = useGlobalTaskList({
+  const controllerQuery = useGlobalTaskList({
     kind: "archived",
     workspaceTabs,
     sortBy,
@@ -90,6 +91,27 @@ export function WorkspaceArchivedTasksFlatSection({
     expanded: showAllTasks,
     collapsedLimit,
   });
+  // Controller 只在桌面 Host 注册；--web 自托管没有该通道时 useGlobalTaskList
+  // 永远返回空。此时降级直查各 workspace 的 listArchivedTasks，保证归档列表可用。
+  // 桌面端 Controller 存在，降级 hook 内部直接返回空，不改变原有行为。
+  const hasController = Boolean(baseServices.windowControllerService);
+  const fallbackQuery = useArchivedTasksFallback({
+    enabled: !hasController,
+    workspaceTabs,
+    sortBy,
+  });
+  const { items, total, loading, syncingRemoteWorkspaces, refresh } = hasController
+    ? controllerQuery
+    : {
+        items: fallbackQuery.items,
+        total: fallbackQuery.total,
+        loading: fallbackQuery.loading || controllerQuery.loading,
+        syncingRemoteWorkspaces: controllerQuery.syncingRemoteWorkspaces,
+        refresh: async () => {
+          fallbackQuery.refresh();
+          await controllerQuery.refresh();
+        },
+      };
   const canToggleExpanded = total > collapsedLimit;
 
   return (
