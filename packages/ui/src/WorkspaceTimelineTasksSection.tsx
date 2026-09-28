@@ -354,6 +354,11 @@ export function WorkspaceTimelineTasksSection({
             },
             nextState: { pinned: false, archived: true },
           });
+        })
+        .catch(() => {
+          // 之前无 catch：对已删除会话重复归档等服务端拒绝会静默丢错，
+          // 用户侧表现为"点了没反应"。统一 toast 提示失败。
+          toast(intlRef.current.formatMessage({ id: "taskList.archiveFailed" }));
         });
     },
     [getCurrentItemContext],

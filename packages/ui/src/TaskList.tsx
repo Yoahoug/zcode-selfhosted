@@ -125,6 +125,16 @@ export const TaskList = memo(function TaskList({
     startDraft(workspacePath, undefined, workspaceIdentity, { createSource: "project" });
   }, [readOnlyReason, startDraft, workspaceIdentity, workspacePath]);
 
+  const archiveTaskWithFailureToast = useCallback(async (taskId: string) => {
+    // onArchiveTask 内部把 RPC 错误原样上抛（如对已删除会话重复归档），
+    // 这里统一兜住并 toast，避免 async 回调里静默丢错、用户侧"点了没反应"。
+    try {
+      await onArchiveTaskRef.current(taskId);
+    } catch {
+      toast(intl.formatMessage({ id: "taskList.archiveFailed" }));
+    }
+  }, [intl]);
+
   const handleArchiveTaskFromInline = useCallback(
     async (e: React.MouseEvent, taskId: string) => {
       e.stopPropagation();
@@ -144,9 +154,9 @@ export const TaskList = memo(function TaskList({
       }
 
       setPendingArchiveTaskId(null);
-      await onArchiveTaskRef.current(taskId);
+      await archiveTaskWithFailureToast(taskId);
     },
-    [handleCancelRenameTask, readOnlyReason],
+    [archiveTaskWithFailureToast, handleCancelRenameTask, readOnlyReason],
   );
 
   const handleStartRenameTask = useCallback(
@@ -187,9 +197,9 @@ export const TaskList = memo(function TaskList({
       }
       setPendingArchiveTaskId(null);
       handleCancelRenameTask();
-      await onArchiveTaskRef.current(taskId);
+      await archiveTaskWithFailureToast(taskId);
     },
-    [handleCancelRenameTask, readOnlyReason],
+    [archiveTaskWithFailureToast, handleCancelRenameTask, readOnlyReason],
   );
 
   const handleSubmitRenameTask = useCallback(

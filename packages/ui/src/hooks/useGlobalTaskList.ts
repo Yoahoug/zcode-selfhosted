@@ -4,6 +4,7 @@ import type {
   ZCodeTaskListKind,
   ZCodeTaskListWorkspaceScope,
 } from "@zcode/services";
+import type { ZCodeWorkspaceEvent } from "@zcode/shared";
 import { logger } from "@/logger.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import type { WorkspaceTabState } from "@/store/tabStore.js";
@@ -12,6 +13,10 @@ import { attachTaskListRowActivity } from "@/v4/taskListRowActivity.js";
 import { stabilizeTaskListItems } from "@/v4/taskListItemStabilization.js";
 import { getWindowControllerTaskListRegistry } from "@/v4/windowControllerTaskListRegistry.js";
 import type { WindowControllerTaskListVersion } from "@/v4/windowControllerTaskListRegistry.js";
+import {
+  createCoalescedRefreshScheduler,
+  shouldRefreshGlobalTaskListOnWorkspaceEvent,
+} from "@/lib/globalTaskListRefresh.js";
 
 type GlobalTaskListItem = WindowHostControllerTaskListItem;
 
@@ -189,6 +194,43 @@ export function useGlobalTaskList(params: {
       manualRefreshSerial: manualRefreshSerialRef.current,
     });
   }, [controllerRevision, load, taskListVersionSignature, workspaceSourceGenerationSignature]);
+
+  // 归档 / 置顶 / 删除等 membership mutation 在 server 写 sqlite 后统一广播
+  // workspace_task_list_changed。桌面 Host Controller 会另发 delta 帧驱动重查；
+  // 自托管 server 侧轻量 Controller 恒不发帧（selfhost/task-list-controller.md），
+  // 全局视图缺失这条失效路径时会出现 mutation 后列表停留旧数据的 ghost rows。
+  // 这里按 scope 订阅同一事件源，命中 membership 类变更就合并调度一次 refresh。
+  // 事件只换代 manualRefreshSerial（强制绕过 registry 查询缓存），不直接改缓存内容。
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  useEffect(() => {
+    if (!controllerRegistry || workspaceScopes.length === 0) {
+      return;
+    }
+    const zcodeTaskService = baseServices.zcodeTaskService;
+    if (!zcodeTaskService) {
+      return;
+    }
+    const scheduler = createCoalescedRefreshScheduler(() => {
+      void refreshRef.current();
+    });
+    const disposables = workspaceScopes.map((scope) =>
+      zcodeTaskService.onDynamicWorkspaceEvent({
+        workspacePath: scope.workspacePath,
+        ...(scope.workspaceIdentity ? { workspaceIdentity: scope.workspaceIdentity } : {}),
+      })((event: ZCodeWorkspaceEvent) => {
+        if (shouldRefreshGlobalTaskListOnWorkspaceEvent(event, scope)) {
+          scheduler.schedule();
+        }
+      }),
+    );
+    return () => {
+      scheduler.dispose();
+      for (const disposable of disposables) {
+        disposable.dispose();
+      }
+    };
+  }, [baseServices, controllerRegistry, workspaceScopes]);
 
   useEffect(() => {
     // 远程 workspace 从断开占位恢复为在线 session 时 identity/path 不变，

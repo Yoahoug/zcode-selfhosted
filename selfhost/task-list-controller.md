@@ -95,5 +95,76 @@
 - 自托管二开收敛位置新增：
   `packages/server/src/selfhostTaskListController.ts`（新建）、
   `packages/server/src/http.ts`（Controller 接线增量）、
-  `packages/ui/src/WorkspaceArchivedTasksFlatSection.tsx`（恢复直查+本地 scope 对齐）。
-  上游改动 `http.ts` 或归档视图时，同步后重点回归这两处接线。
+  `packages/ui/src/WorkspaceArchivedTasksFlatSection.tsx`（恢复直查+本地 scope 对齐）、
+  `packages/ui/src/hooks/useGlobalTaskList.ts`（mutation 后事件驱动 refresh，见下）、
+  `packages/ui/src/lib/globalTaskListRefresh.ts`（事件过滤纯函数）。
+  上游改动 `http.ts` 或归档视图 / `useGlobalTaskList` 时，同步后重点回归这些接线。
+
+## 3.14.3-selfhost.4 增补：mutation 后全局视图不刷新（已在线上复现）
+
+### 现象（ops 服务器日志 + sqlite 证实）
+
+- 14:07 用户连续操作：`zcode-task.archiveTask OK` ×2、`zcode-task.deleteTask OK` ×2，
+  sqlite 两行均为 `archived=1 deleted=1`——**RPC 全部成功，写入路径正常**。
+- 但 Web 端 timeline / archived 视图仍持续显示这两条会话（ghost rows），
+  用户感知"归档没反应、归档后没法删除"（归档视图同样停留在旧缓存，
+  新归档的会话永远不出现，自然无从删除）。
+
+### 根因：spec 原假设"视图 refresh() 重查"只在一半视图上实现了
+
+selfhost.3 的事件顺序一节写了"按钮直调 zcodeTaskService → 广播
+`workspace_task_list_changed` → 视图 refresh() 重查"。实际实现中：
+
+1. **项目行视图（`useWorkspaceTaskLists`）有事件订阅**——14:07:20 deleteTask 后
+   journal 里 `listPinnedTaskIds/listArchivedTasks/listTasks` 的突发就是它收到事件后
+   的 membership 重拉，这条链路是通的。
+2. **全局视图（timeline / pinned / archived，走 `useGlobalTaskList`）没有任何
+   mutation 后失效路径**，其重查只由三个信号驱动，在自托管 server 上全部不动：
+   - `controllerRevision`：需要 Controller 帧。server 侧轻量 Controller
+     `onDynamicControllerFrame` 恒为 `Event.None`，永不 bump（selfhost.3 的设计决策）。
+   - `taskListVersionSignature`：需要 `bumpTaskListVersion`。归档/删除 mutation
+     没有任何调用方会 bump 它（bot 广播、Claude 导入除外）。
+   - `manualRefreshSerial`：只有显式 `refresh()`。归档/删除 handler 不调用。
+     桌面端同一份代码不出问题，是因为桌面 Host Controller 会对每次 mutation 发
+     delta 帧 → `controllerRevision` bump → `useGlobalTaskList` effect 重跑重查。
+     **自托管把帧摘掉了，却没补上桌面帧所承担的失效职责**——这是 spec 决策
+     （"订阅帧恒为空……mutation 后由 UI refresh + workspace 事件驱动重查"）与实现
+     之间的缺口，不是 RPC 或 sqlite 的问题。
+
+### 修复（已决策）：`useGlobalTaskList` 补事件驱动 refresh，单写路径
+
+- 新增 `packages/ui/src/lib/globalTaskListRefresh.ts` 纯函数：
+  `shouldRefreshGlobalTaskListOnWorkspaceEvent(event, scope)` =
+  `type === "workspace_task_list_changed"` 且 `buildTaskWorkspaceKey` 匹配本 scope
+  且 `shouldRefetchTaskListMembershipForWorkspaceEvent(event)`
+  （archived/unarchived/pinned/unpinned/meta_changed/created/deleted）。
+  过滤口径与 `useWorkspaceTaskLists` 完全一致，不另造词表。
+- `useGlobalTaskList` 内对每个 workspace scope 订阅
+  `zcodeTaskService.onDynamicWorkspaceEvent`，命中过滤即调度一次 `refresh()`；
+  同一 tick / 50ms 窗口内的连续事件（批量删除、自动归档逐条 emit）合并为一次重查。
+- 事件由 server adapter 的 `emitWorkspaceTaskListChanged` 统一发出（单一 emit 点，
+  覆盖本端 mutation、手机远控、桌面 Host 各路径），UI 不再在各 mutation handler
+  里逐个补 refresh——不增加第二条失效写入路径。
+- 归属不变量不变：Controller registry 仍是查询缓存唯一所有者；事件只是触发
+  `manualRefreshSerial` 换代的信号，不直接改缓存内容。
+- 附带硬化：timeline / pinned / TaskList 行内归档 mutation 此前无 `.catch`，
+  RPC 失败（如对已删除 ghost row 重复归档，server 抛 "task index 中不存在 task"）
+  时静默丢错。统一补 `taskList.archiveFailed` toast（key 已存在，中英齐全）。
+
+### 桌面端影响评估
+
+- `useGlobalTaskList` 为共享 hook，桌面同样会多订阅一路 workspace 事件。
+  桌面本就靠 Controller 帧驱动重查，事件触发的 refresh 只是同数据的一次额外
+  低频重查（membership 事件本身低频，且 registry `list()` 同 versionKey 命中缓存），
+  语义不变；归档/删除的可见时序不受影响。
+
+### 事件顺序（修复后）
+
+```text
+mutation（本端/远控/桌面）→ zcodeTaskService 写 sqlite
+  → emitWorkspaceTaskListChanged（server 单点广播）
+    ├→ useWorkspaceTaskLists：bump membershipVersion → 项目行重拉（原有）
+    └→ useGlobalTaskList（新增）：过滤命中 → 合并去抖 → refresh()
+         → registry.list(versionKey 含 manualRefreshSerial) → Controller 重查
+         → server 直查 sqlite（无缓存，结果必为新事实）
+```

@@ -238,6 +238,10 @@ export function WorkspacePinnedTasksSection({
             previousState: { pinned: true, archived: false },
             nextState: { pinned: false, archived: true },
           });
+        })
+        .catch(() => {
+          // 之前无 catch：服务端拒绝（如会话已被删除）会静默丢错，表现为"点了没反应"。
+          toast(intlRef.current.formatMessage({ id: "taskList.archiveFailed" }));
         });
     },
     [getCurrentPinnedItemContext],
