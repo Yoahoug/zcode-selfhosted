@@ -37,3 +37,13 @@
 
 - 环境变量全部可选，不设置时行为与上游一致（空闲释放默认开启 30 分钟，可设 `0` 关闭）。
 - 前端卡片默认收起为一行，不挤占 footer 现有布局；桌面端同样可用。
+
+## 实测行为补充（3.14.3-selfhost.1 部署后验证）
+
+- 空闲释放的作用对象是「Agent runtime 进程树」：server 从不主动拉起 Agent，只有浏览器
+  打开工作区、触发会话请求后才会 spawn。因此从未有浏览器访问过的服务器上，
+  `workspaceTargets` 恒为空，空闲释放自然为 no-op，进程树只有 server 自身。
+- 这意味着稳态内存就是 server 进程的 RSS（约 180-190MB）；Agent 子进程（通常再 +100-200MB）
+  只在用户实际使用会话后出现，并在空闲阈值后由 disposeWorkspace 回收。
+- `idleCountdownSeconds` 从最后一个活动归零开始倒数；释放完成后变 `null`（releasedWhileIdle），
+  下一次 WS 连接或 turn 事件重置。
