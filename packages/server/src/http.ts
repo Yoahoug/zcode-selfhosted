@@ -17,6 +17,7 @@ import {
 } from "@zcode/rpc";
 import {
   ServiceCollection,
+  IWindowControllerService,
   IZCodeAgentService,
   createZCodeAgentConnectionScope,
   IFileService,
@@ -25,6 +26,7 @@ import {
   ITerminalService,
   IBotsService,
   IProviderProvisioningTargetService,
+  IZCodeTaskService,
 } from "@zcode/services";
 import {
   botProviders,
@@ -44,6 +46,24 @@ import {
   resolveSelfhostIdleTimeoutMinutes,
   SelfhostIdleResourceManager,
 } from "./selfhostIdleResource.js";
+import { createSelfhostTaskListController } from "./selfhostTaskListController.js";
+
+// 自托管轻量 WindowController 是进程级单例：只读、无状态、无订阅，
+// taskService 引用在 createLocalServices 后保持稳定，可跨 WS 连接复用。
+// register 幂等：ServiceCollection.register 同名覆盖，重复调用无副作用。
+// 桌面 Host 的聚合 runtime 不搬到 server（见 selfhostTaskListController.ts 头注）。
+let selfhostTaskListController: IWindowControllerService | null = null;
+
+function resolveSelfhostTaskListController(
+  services: ServiceCollection,
+): IWindowControllerService {
+  if (!selfhostTaskListController) {
+    selfhostTaskListController = createSelfhostTaskListController(
+      services.getOptional(IZCodeTaskService),
+    );
+  }
+  return selfhostTaskListController;
+}
 
 function wrapWebSocket(ws: WebSocket): ISocket {
   const onData = new Emitter<VSBuffer>();
@@ -109,6 +129,14 @@ function setupChannelServer(
   if (connectionScope) {
     overrides.set(IZCodeAgentService.channelName, connectionScope.service);
   }
+  // 自托管 --web 没有桌面 Host 聚合面：归档 / pinned / timeline 等侧栏列表统一走
+  // window-controller 通道。server 侧注册只读直查实现（tasks-index 分区），
+  // 桌面端走 Host runtime。注意 exposeOnChannelServer 只暴露已 register 的服务，
+  // overrides 无法凭空新增通道，因此这里先 register 再暴露。
+  services.register(
+    IWindowControllerService,
+    resolveSelfhostTaskListController(services),
+  );
   // Provisioning 携带跨 Environment 凭据，只允许 Desktop trusted host 使用；普通 Web
   // remote/replayable 客户端即使知道频道名，也不能获得 target 写入接口。
   if (
