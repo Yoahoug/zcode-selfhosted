@@ -53,3 +53,8 @@ systemctl restart zcode-web                                        # 重启
    扁平化改写（见 `.github/workflows/selfhost-release.yml`）。
 4. **base-url 必须指向本次 tag**：指浮动的 `selfhost-latest` 会在重发时错位 404。
 5. **Node>=24**：服务器预装是 v22，已用 nodesource 升到 v24。仓库 `mise.toml` 为准。
+6. **明文 HTTP 会关掉一批安全上下文 API**：2026-09-30 线上实例上传图片必失败，根因不是图片本身，
+   而是 `http://<组网 IP>` 不是安全上下文、浏览器不暴露 `crypto.subtle`，附件上传在算校验和时就抛错
+   （服务端收不到任何请求，日志无痕）。UI 侧已回退到内置 SHA-256，见
+   `selfhost/attachment-upload-checksum.md`；但 `navigator.clipboard` 同样不存在，
+   上 TLS 前界面的复制按钮一律失效。

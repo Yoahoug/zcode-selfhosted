@@ -13,6 +13,7 @@ import type {
   ZCodeAgentAttachmentTerminalParams,
 } from "@zcode/services";
 import { logger } from "@/logger.js";
+import { sha256Hex } from "@/lib/sha256.js";
 
 /** 384KiB 可被 3 整除，除末片外 base64 不含 padding；同时为两层 envelope 留足空间。 */
 const ATTACHMENT_UPLOAD_CHUNK_BYTES = 384 * 1024;
@@ -86,14 +87,20 @@ function encodeBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+/** 明文 HTTP 的自建部署会一直走回退路径，告警只在会话内记一次，避免每次上传都刷日志。 */
+let checksumFallbackWarned = false;
+
 async function checksum(bytes: Uint8Array): Promise<string> {
-  if (!globalThis.crypto?.subtle) throw new Error("fault.attachment.checksumUnavailable");
-  // WebCrypto 的 BufferSource 要求 ArrayBuffer；复制也避免调用期间底层 view 被复用。
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", Uint8Array.from(bytes).buffer);
-  const hex = [...new Uint8Array(digest)]
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
-  return `sha256:${hex}`;
+  if (!globalThis.crypto?.subtle && !checksumFallbackWarned) {
+    checksumFallbackWarned = true;
+    // 修复原因：非安全上下文（http 且非 localhost）没有 crypto.subtle，而校验和缺失会让上传在
+    // attachmentBegin 之前就失败，服务端收不到任何请求、没有任何日志可查（线上实例实测），
+    // 因此这里改为回退到内置 SHA-256，并把降级事实记进日志。
+    logger.warn("[v4-attachment] 页面不是安全上下文，附件校验和改用内置 SHA-256 实现", {
+      origin: typeof window === "undefined" ? undefined : window.location.origin,
+    });
+  }
+  return `sha256:${await sha256Hex(bytes)}`;
 }
 
 function createUploadId(): string {
