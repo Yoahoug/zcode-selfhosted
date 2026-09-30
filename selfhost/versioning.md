@@ -43,7 +43,9 @@
 
 ## 服务器侧约束
 
-- 运行用户固定为 `zcode`，禁止 root 直接运行 web 进程。
+- 运行用户固定为 `root`（2026-09-30 应用户要求从 `zcode` 切换：web 会话内需要执行
+  git 推送、docker 等运维操作，zcode 用户无 sudo 无法完成。服务仅监听组网 IP
+  `10.66.66.66`，不公网暴露，root 直跑风险可接受）。
 - token 只存 `/data/appdata/zcode-web/web.env`（600 权限），禁止写进仓库、history、日志。
 - systemd unit 里 token 通过 `--token=${ZCODE_WEB_TOKEN}` 传递（EnvironmentFile 注入），
   禁止 `$(cat ...)` 命令替换写法（systemd 不展开 shell 语法，会导致鉴权失效）。

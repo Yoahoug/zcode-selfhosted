@@ -21,7 +21,7 @@ ZCODE_DIST_BASE_URL="https://github.com/Yoahoug/zcode-selfhosted/releases/downlo
 
 | 项 | 值 |
 |---|---|
-| 运行用户 | `zcode`（禁止 root 直跑 web） |
+| 运行用户 | `root`（2026-09-30 起按用户要求；此前为 `zcode`，发行包安装仍以 zcode 身份执行） |
 | 发行包 | `/home/zcode/.zcode/runtime/releases/<版本>/`，`current` 软链指向生效版本 |
 | workspace | `/data/appdata/zcode-web/workspace` |
 | 数据目录 | `/data/appdata/zcode-web/data`（`ZCODE_DATA_BASE_DIR`，含会话 sqlite） |

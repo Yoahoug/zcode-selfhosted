@@ -19,7 +19,8 @@
    `web.env`；`web.env` 缺失时从 `.web-token` 重建。两个文件内容不一致时以
    `.web-token` 为准重建 `web.env`。
 4. **systemd unit**（`/etc/systemd/system/zcode-web.service`）：
-   - `User=zcode`（禁止 root 直跑 web 进程）；
+   - `User=root`（2026-09-30 应用户要求以 root 运行，此前为 `zcode`；发行包安装
+     与 token 文件属主仍走 `APP_USER=zcode`，root 读之不受影响，切换时路径布局不变）；
    - `Environment=ZCODE_DATA_BASE_DIR=/data/appdata/zcode-web/data`；
    - `Environment=ZCODE_SELFHOST_IDLE_TIMEOUT_MINUTES=30`（固定值，不从安装环境继承）；
    - `EnvironmentFile=/data/appdata/zcode-web/web.env` +
