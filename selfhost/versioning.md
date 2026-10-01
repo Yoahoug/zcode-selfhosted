@@ -32,6 +32,8 @@
   typecheck + lint + 发行包冒烟（`curl /api/selfhost/resource`）。
 - 自托管二开全部收敛在以下位置，与上游文件不混写，冲突面最小：
   - `packages/server/src/selfhostIdleResource.ts`（新建）
+  - `packages/server/src/selfhostAutomationScheduler.ts`（新建）与 `packages/server/test/selfhostAutomationScheduler.test.ts`（新建）
+  - `packages/server/src/entry-http.ts`（仅接线：manual run 派发注入 + 定时任务调度器装配）
   - `packages/server/src/http.ts`（仅接线：计数器、端点、WS 开关通知、Controller 通道注册）
   - `packages/server/src/selfhostTaskListController.ts`（新建）与 `packages/server/test/selfhostTaskListController.test.ts`（新建）
   - `packages/ui/src/WorkspaceArchivedTasksFlatSection.tsx`（归档查询对齐本地 scope）
