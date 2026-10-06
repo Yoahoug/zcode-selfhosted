@@ -38,6 +38,42 @@
 - 环境变量全部可选，不设置时行为与上游一致（空闲释放默认开启 30 分钟，可设 `0` 关闭）。
 - 前端卡片默认收起为一行，不挤占 footer 现有布局；桌面端同样可用。
 
+## 释放前台账二次确认（3.14.3-selfhost.2）
+
+内存计数器的已知盲区：turn 计数只认「已经开始的 turn」。定时任务（automation）与
+闲时任务（off-peak）从派发到 Agent turn 真正开始之间有数秒到数十秒（Agent 冷启动更久）
+没有 turn 事件；页面关闭后 WS 计数为 0，若空闲阈值恰好落在这个窗口，会把刚拉起的
+Agent 杀掉，任务当场中断且无任何恢复。
+
+修复口径：
+
+1. `SelfhostIdleResourceManager` 增加可选的 `SelfhostTaskActivitySource`（任务台账快照），
+   释放前对每个 workspace 查询 `listTasks` 聚合出两个信号：
+   - `runningTaskCount`：`status === "running"`（缺省视为 running，与 `taskStatus` 口径一致）
+     或存在 `pendingInteraction`（阻塞在权限确认/提问上的任务同样没结束）的任务数。
+   - `lastTaskActivityAt`：所有任务 `updatedAt` 的最大值；无任务为 `null`。
+2. 判定：任一任务 running/阻塞 → 活跃；无活跃任务但 `lastTaskActivityAt` 距今
+   不足 3 分钟（`TASK_ACTIVITY_GRACE_MS`）→ 仍视为活跃（覆盖冷启动窗口与台账落盘尾巴）。
+3. 失败语义：台账读取抛错时按「活跃」处理——宁可多占一会儿内存，也不杀正在跑的任务。
+4. 台账快照不新增持久化、不新增 RPC 通道，真相源仍是 tasks-index.sqlite；
+   空闲管理器内的计数器与台账查询不互写，内存计数仍是唯一实时计数所有者，
+   台账只作为释放闸门的慢路径二次确认。
+5. `listTasks` 按请求的 `workspacePath` + `workspaceIdentity` 过滤，与任务列表
+   （task-list-controller）的隔离口径一致，不做全局查询。
+
+事件顺序（同一 workspace）：
+
+```
+定时任务派发（automation scheduler）
+  → task meta 创建/updatedAt 更新（tasks-index）
+  → Agent 冷启动（无 turn 事件窗口）
+  → [若空闲计时器此刻到期] 释放循环 → 台账查询 → lastTaskActivityAt < 3min → 不释放，重置计时
+  → turn 开始（内存计数器 +1，回到原有判定路径）
+
+释放循环本身：releasing 标志防重入；同轮空闲内每个 workspace 至多 dispose 一次；
+  存在任一活跃 workspace 时不锁死 releasedWhileIdle，重置 idleSince 下一轮重评。
+```
+
 ## 实测行为补充（3.14.3-selfhost.1 部署后验证）
 
 - 空闲释放的作用对象是「Agent runtime 进程树」：server 从不主动拉起 Agent，只有浏览器

@@ -354,9 +354,34 @@ export function createHttpServer(
 
   // 自托管空闲资源管理：计数真相的唯一所有者。WS 开关与 Agent turn 事件在此聚合，
   // 资源端点只读它的快照。注册在 token 中间件之后，自动受鉴权保护。
+  // 任务台账用于释放前二次确认：定时/闲时任务从派发到 turn 开始之间没有 turn 事件，
+  // 只认内存计数会在这段窗口里把刚起来的 Agent 杀掉、任务当场中断。
+  const selfhostTaskService = services.getOptional(IZCodeTaskService);
   const selfhostIdle = new SelfhostIdleResourceManager(
     services.getOptional(IZCodeAgentService),
     { idleTimeoutMinutes: resolveSelfhostIdleTimeoutMinutes(process.env) },
+    selfhostTaskService
+      ? {
+          async readWorkspaceTaskActivity(target) {
+            const tasks = await selfhostTaskService.listTasks({
+              workspacePath: target.workspacePath,
+              ...(target.workspaceIdentity
+                ? { workspaceIdentity: target.workspaceIdentity }
+                : {}),
+            });
+            let runningTaskCount = 0;
+            let lastTaskActivityAt: number | null = null;
+            for (const task of tasks) {
+              // 阻塞在权限确认/提问上的任务同样没有结束，不能算空闲。
+              if (task.status === "running" || Boolean(task.pendingInteraction)) {
+                runningTaskCount += 1;
+              }
+              lastTaskActivityAt = Math.max(lastTaskActivityAt ?? 0, task.updatedAt);
+            }
+            return { runningTaskCount, lastTaskActivityAt };
+          },
+        }
+      : undefined,
   );
   selfhostIdle.start();
 
