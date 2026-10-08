@@ -37,6 +37,9 @@ export default defineConfig(({ mode }) => {
   const zaiOAuthOrigin = resolveZaiOAuthOrigin(endpointEnv);
   // ZAI OAuth client_id 是公开标识，允许注入浏览器包；secret/token 不得走 VITE_。
   const zaiOAuthClientId = resolveZaiOAuthClientId(endpointEnv);
+  // dev server 的 /ws 与 /api 代理目标端口。默认 3030；ZCODE_DEV_SERVER_PORT 可覆盖，
+  // 供本机已有生产 server 占用 3030 时并行起开发实例（如验证手机视口布局）。
+  const devServerPort = env["ZCODE_DEV_SERVER_PORT"] ?? "3030";
 
   return {
     plugins: [pdfJsCMapsPlugin(), react(), tailwindcss(), thirdPartyNoticesVitePlugin()],
@@ -63,9 +66,9 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: true,
         },
-        // 将 /ws 和 /api 请求代理到 server（默认 3030 端口）
-        "/ws": { target: "ws://localhost:3030", ws: true },
-        "/api": { target: "http://localhost:3030" },
+        // 将 /ws 和 /api 请求代理到 server（默认 3030 端口，可由 ZCODE_DEV_SERVER_PORT 覆盖）。
+        "/ws": { target: `ws://localhost:${devServerPort}`, ws: true },
+        "/api": { target: `http://localhost:${devServerPort}` },
       },
     },
     optimizeDeps: {

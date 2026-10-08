@@ -13,6 +13,7 @@ import {
   saveTaskSidePaneCollapsedPreference,
   saveTaskSidePaneMemoryState,
 } from "@/lib/taskSidePaneMemory.js";
+import { readIsNarrowViewport } from "@/hooks/useIsNarrowViewport.js";
 import {
   closeSidePaneTab,
   closeSidePaneTabForParent,
@@ -202,7 +203,9 @@ export function useAppPanels(options: {
   // 交互说明：侧栏显隐按钮放在 App 外层，而不是 Sidebar 内部。
   // 这样即使侧栏被隐藏，入口也仍然留在左上角，不会出现"收起后没有地方再展开"的问题；
   // 同时这里统一处理 macOS 红绿灯安全区，避免按钮和系统窗口控件重叠。
-  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
+  // 窄视口（手机）首帧不铺侧栏：侧栏定宽 264px，手机上会把对话区挤出屏幕。
+  // 手机上的侧栏由 WorkspaceShellLayout 以抽屉形式叠加呈现，默认收起、点图标展开。
+  const [isSidebarVisible, setIsSidebarVisible] = useState(() => !readIsNarrowViewport());
   const [browserNavigationRequest, setBrowserNavigationRequest] =
     useState<BrowserNavigationRequest | null>(null);
   const [allRecentClosedSidePaneTabs, setAllRecentClosedSidePaneTabs] = useState<

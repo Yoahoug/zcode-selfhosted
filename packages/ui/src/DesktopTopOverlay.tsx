@@ -21,6 +21,11 @@ interface DesktopTopOverlayProps {
   isMacFullscreen?: boolean;
   isWindowsDesktop?: boolean;
   isDesktop?: boolean;
+  /**
+   * 窄视口（手机/窄窗口）：侧栏是叠加抽屉，默认收起，因此不需要窗口标题栏也要给展开入口。
+   * 桌面 Windows/Linux 走 usesCustomCaptionArea 分支，macOS 走 isMacDesktop 分支。
+   */
+  isNarrowViewport?: boolean;
   macWindowControlsLeftPaddingPx?: number;
   windowsWindowControlsRightPaddingPx?: number;
   isSidebarVisible: boolean;
@@ -51,6 +56,7 @@ export function DesktopTopOverlay({
   isMacFullscreen,
   isWindowsDesktop,
   isDesktop,
+  isNarrowViewport = false,
   macWindowControlsLeftPaddingPx,
   windowsWindowControlsRightPaddingPx,
   isSidebarVisible,
@@ -149,7 +155,7 @@ export function DesktopTopOverlay({
             </DesktopTopOverlayActionButton>
           )}
 
-          {isMacDesktop && (
+          {isMacDesktop || (isNarrowViewport && !usesCustomCaptionArea) ? (
             <DesktopTopOverlayActionButton
               title={toggleSidebarTitle}
               shortcut={toggleSidebarShortcutLabel}
@@ -158,7 +164,7 @@ export function DesktopTopOverlay({
             >
               <SidebarToggleIcon className="size-4" />
             </DesktopTopOverlayActionButton>
-          )}
+          ) : null}
 
           {/* 远程控制移动端左上角空间有限，任务前进/后退在这里会与主操作拥挤重叠。*/}
           {hideTaskNavigationButtons ? null : (

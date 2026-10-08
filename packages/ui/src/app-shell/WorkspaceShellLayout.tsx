@@ -35,6 +35,7 @@ import { DesktopTopOverlay } from "@/DesktopTopOverlay.js";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
 import { WorkspacePluginPreview } from "@/WorkspacePluginPreview.js";
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
+import { useIsNarrowViewport } from "@/hooks/useIsNarrowViewport.js";
 import { GitBranchSwitcher } from "@/GitBranchSwitcher.js";
 import { ScopedErrorBoundary } from "@/ErrorBoundary.js";
 
@@ -403,6 +404,9 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     );
   }, [openWorkspaceKeys]);
   const isSidebarPanelVisible = isSidebarVisible;
+  // 窄视口（手机竖屏/窄窗口）：侧栏从「占位定宽栏」改为叠加抽屉，对话区独占整屏宽度。
+  // 桌面与宽 Web 布局完全不变，判定只影响本组件的分栏方式。
+  const isNarrowViewport = useIsNarrowViewport();
   const {
     panelRef: terminalPanelRef,
     panelElementRef: terminalPanelElementRef,
@@ -443,6 +447,29 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       workspaceKey,
     };
   }, [handleToggleSidebar, handleToggleSidePane, isSidebarVisible, isSidePaneOpen, workspaceKey]);
+
+  // 窄视口抽屉的让位时机：窗口刚变窄，或用户在抽屉里点开了另一个会话。
+  // 桌面布局下两个信号都不触发，不会覆盖用户手动展开的侧栏。
+  const previousNarrowViewportRef = useRef(isNarrowViewport);
+  const previousActiveTaskIdRef = useRef(activeTaskId);
+  useEffect(() => {
+    const becameNarrow = isNarrowViewport && !previousNarrowViewportRef.current;
+    const activeTaskChanged = previousActiveTaskIdRef.current !== activeTaskId;
+    previousNarrowViewportRef.current = isNarrowViewport;
+    previousActiveTaskIdRef.current = activeTaskId;
+    if (!isNarrowViewport || !isSidebarVisible) {
+      return;
+    }
+    if (!becameNarrow && !activeTaskChanged) {
+      return;
+    }
+    logger.info("[WorkspaceShellLayout] 窄视口自动收起侧栏抽屉", {
+      becameNarrow,
+      activeTaskChanged,
+      workspaceKey,
+    });
+    handleToggleSidebar();
+  }, [activeTaskId, handleToggleSidebar, isNarrowViewport, isSidebarVisible, workspaceKey]);
 
   useEffect(() => {
     if (workspaceMainView !== "chat") {
@@ -1527,16 +1554,36 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
           // CSS 变量驱动的专用 split，普通窗口 resize 只走浏览器布局，不触发 React 状态。
         )}
       >
+        {isNarrowViewport && isSidebarPanelVisible ? (
+          // 抽屉背板：点空白处收起，恢复对话区可点。层级要压过 composer 等 z-20 内容层，
+          // 否则背板只在页面边缘可点，手机上几乎点不到。
+          <div
+            data-workspace-sidebar-backdrop="true"
+            aria-hidden="true"
+            className="absolute inset-0 z-30 bg-black/40"
+            onClick={handleToggleSidebar}
+          />
+        ) : null}
         <div
           ref={workspaceSidebarPanelElementRef}
           data-panel=""
           data-workspace-sidebar-panel="true"
           id="sidebar"
           className={cn(
-            "w-[var(--workspace-sidebar-panel-width)] max-w-[50%] flex-none overflow-hidden duration-200 ease-out transition-[width,opacity] data-[workspace-sidebar-resizing=true]:transition-opacity",
+            isNarrowViewport
+              ? // 窄视口：抽屉叠加在对话区之上，不参与分栏；宽度取视口与 320px 的较小值，
+                // 收起点用 -translate-x-full，配合父层 overflow-hidden 不产生横向滚动。
+                "absolute inset-y-0 left-0 z-40 w-[min(320px,86vw)] bg-background shadow-xl duration-200 ease-out transition-transform"
+              : "w-[var(--workspace-sidebar-panel-width)] max-w-[50%] flex-none overflow-hidden duration-200 ease-out transition-[width,opacity] data-[workspace-sidebar-resizing=true]:transition-opacity",
             // 拖动侧栏宽度时如果继续过渡 width，会让指针移动和实际宽度之间产生滞后。
             // 拖拽 active 通过 DOM 标记切 transition，避免 pointerdown/up 为了切 class 重渲染整棵 workspace。
-            isSidebarPanelVisible ? "opacity-100" : "pointer-events-none opacity-0",
+            isSidebarPanelVisible
+              ? isNarrowViewport
+                ? "translate-x-0"
+                : "opacity-100"
+              : isNarrowViewport
+                ? "pointer-events-none -translate-x-full"
+                : "pointer-events-none opacity-0",
           )}
         >
           <aside
@@ -1608,7 +1655,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
           </aside>
         </div>
 
-        {isSidebarVisible ? (
+        {isSidebarVisible && !isNarrowViewport ? (
           <div
             role="separator"
             tabIndex={0}
@@ -1636,7 +1683,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
           data-panel=""
           id="content"
           className={cn(
-            "flex min-w-[320px] flex-1 flex-col",
+            isNarrowViewport ? "flex min-w-0 flex-1 flex-col" : "flex min-w-[320px] flex-1 flex-col",
             hasDesktopPanelInset ? "p-1 pl-0 pt-0" : "p-0",
           )}
         >
@@ -1948,6 +1995,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
             windowsWindowControlsRightPaddingPx={windowsWindowControlsRightPaddingPx}
             isWindowsDesktop={isWindowsDesktop}
             isDesktop={isDesktop}
+            isNarrowViewport={isNarrowViewport}
             isSidebarVisible={isSidebarVisible}
             updateReadyVersion={updateReadyVersion}
             updateState={updateState}
