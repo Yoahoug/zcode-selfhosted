@@ -1,4 +1,4 @@
-import { createLocalServices, getAppConfigDir } from "@zcode/services/node";
+import { createLocalServices, createTopicResourcePeers, getAppConfigDir } from "@zcode/services/node";
 import { IModelSelectionService, IZCodeTaskService } from "@zcode/services";
 import {
   materializeBundledZCodeBuiltinProviderConfig,
@@ -23,7 +23,9 @@ async function main(): Promise<void> {
   // 装配时注入，调度器本体又要在装配后从 services 取 task / model selection 服务。
   // 用前向引用 holder 惰性绑定——manual run 只会在装配完成后由 RPC 触发。
   let automationScheduler: SelfhostAutomationScheduler | undefined;
+  const topicResourcePeers = createTopicResourcePeers();
   const services = createLocalServices({
+    topicResourceRelayChannel: (request) => topicResourcePeers.getChannel(request),
     zcodeBuiltinProviderConfigFilePath,
     providerProvisioningTargetEnabled: Boolean(authToken),
     onAutomationManualRunRequested: async ({ automation, run }) => {
@@ -42,6 +44,7 @@ async function main(): Promise<void> {
   }
 
   createHttpServer(services, port, {
+    topicResourcePeers,
     ...(host ? { host } : {}),
     ...(staticRoot ? { staticRoot, spaFallback: true } : {}),
     ...(authToken ? { authToken, authRequired: true } : {}),

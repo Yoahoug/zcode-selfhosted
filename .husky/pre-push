@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+
+# 自托管部署机内存有限，本地不再跑 lint / architecture / 单测门禁
+# （全量 tsc 需 2GB+ 堆，pre-push 会把每次推送卡住数分钟）。
+# 同样的检查已由 .github/workflows/selfhost-check.yml 在 GitHub Actions
+# 上执行：push main / sync/** / selfhost/** 均触发，作为合并与打 tag 的门槛。
+# 需要临时本地兜底时手工运行：pnpm run verify:pre-push
+echo "[pre-push] 静态检查已上移 GitHub Actions（selfhost-check），本地跳过。"
+exit 0
