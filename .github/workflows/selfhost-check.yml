@@ -1,0 +1,38 @@
+name: selfhost-check
+
+# 本地不再跑 typecheck/lint（机器内存有限，tsc 全量约需 2GB+ 堆），
+# 推送到 GitHub 后由 Actions 执行；结果作为合并 main 与打发布 tag 前的门槛。
+on:
+  push:
+    branches:
+      - main
+      - "sync/**"
+      - "selfhost/**"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Lint
+        run: pnpm lint
+      - name: Architecture check
+        run: pnpm architecture:check --changed
