@@ -33,22 +33,37 @@ export default defineConfig(({ mode }) => {
     publicDir: resolve(REPO_ROOT, "packages/web/public"),
     plugins: [react(), tailwindcss()],
     resolve: {
-      alias: {
-        "@": resolve(REPO_ROOT, "packages/ui/src"),
-        "@zcode/shared": resolve(REPO_ROOT, "packages/shared/src/index.ts"),
+      // 修复原因：上游 v3.15.1 起 @zcode/shared 新增子路径导出（config-schema、
+      // model-config、zcode-protocol-v4、mcp-apps）。旧的对象式根别名按前缀匹配，
+      // 会把 "@zcode/shared/config-schema" 重写成 "src/index.ts/config-schema"，
+      // rolldown 报 Not a directory，share 镜像构建失败。改用数组 + 正则：
+      // 子路径直接映射到 shared/src 下的真实源码，之后新增子路径导出无需再改这里。
+      alias: [
+        {
+          find: /^@zcode\/shared\/(.+)$/,
+          replacement: `${resolve(REPO_ROOT, "packages/shared/src")}/$1`,
+        },
+        {
+          find: /^@zcode\/shared$/,
+          replacement: resolve(REPO_ROOT, "packages/shared/src/index.ts"),
+        },
+        { find: "@", replacement: resolve(REPO_ROOT, "packages/ui/src") },
         // Share 镜像不安装 @zcode/ui（它会带入 services/rpc 闭包），子路径导入必须显式指向源码。
-        "@zcode/ui/useTheme": resolve(REPO_ROOT, "packages/ui/src/useTheme.ts"),
-        "@zcode/ui/conversation-share-readonly": resolve(
-          REPO_ROOT,
-          "packages/share-ui/src/index.ts",
-        ),
+        {
+          find: "@zcode/ui/useTheme",
+          replacement: resolve(REPO_ROOT, "packages/ui/src/useTheme.ts"),
+        },
+        {
+          find: "@zcode/ui/conversation-share-readonly",
+          replacement: resolve(REPO_ROOT, "packages/share-ui/src/index.ts"),
+        },
         // 登录卡片要用 provider 图标（svg 走 @ -> packages/ui/src 别名解析）。
         // 该模块只依赖 shared/lucide/cn，不会把 services/rpc 闭包带进 share 镜像。
-        "@zcode/ui/oauth-provider-icon": resolve(
-          REPO_ROOT,
-          "packages/ui/src/lib/oauthProviderIcon.tsx",
-        ),
-      },
+        {
+          find: "@zcode/ui/oauth-provider-icon",
+          replacement: resolve(REPO_ROOT, "packages/ui/src/lib/oauthProviderIcon.tsx"),
+        },
+      ],
     },
     define: {
       __ZCODE_VERSION__: JSON.stringify(version),
